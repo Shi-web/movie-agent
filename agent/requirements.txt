@@ -4,6 +4,7 @@ langchain==1.2.15
 langchain-groq==1.1.2
 langchain-core==1.2.28
 httpx==0.28.1
+requests==2.32.3
 python-dotenv==1.2.2
 pydantic==2.12.5
 tenacity==9.1.4

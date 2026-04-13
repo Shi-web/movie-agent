@@ -1,23 +1,14 @@
-import threading
-import time
-
-import httpx
-
-HEALTH_URL = "http://localhost:8000/health"
-INTERVAL_SECONDS = 600  # 10 minutes
+import threading, time, requests
 
 
-def _ping_loop() -> None:
-    while True:
-        time.sleep(INTERVAL_SECONDS)
-        try:
-            httpx.get(HEALTH_URL, timeout=5.0)
-        except Exception:
-            pass
+def start_keepalive():
+    def ping():
+        while True:
+            time.sleep(840)  # 14 minutes
+            try:
+                requests.get("http://localhost:8000/health", timeout=5)
+            except:
+                pass
 
-
-def start() -> None:
-    """Spawn a daemon thread that pings /health every 10 minutes to prevent
-    Render's free-tier instances from spinning down due to inactivity."""
-    thread = threading.Thread(target=_ping_loop, daemon=True)
-    thread.start()
+    t = threading.Thread(target=ping, daemon=True)
+    t.start()

@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from groq import RateLimitError
 from pydantic import BaseModel, ConfigDict
 
 from agent import get_last_tool_calls, run_agent
@@ -53,14 +55,22 @@ def root() -> dict[str, str]:
     return {"service": "movie-agent", "docs": "/docs"}
 
 
+_RATE_LIMIT_BODY = {
+    "error": "rate_limit",
+    "message": "Too many requests — please wait 30 seconds and try again.",
+}
+
+
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
+def chat(req: ChatRequest) -> ChatResponse | JSONResponse:
     try:
         response = run_agent(req.message, req.history)
         tool_calls = [ToolCall(name=name) for name in get_last_tool_calls()]
         raw_movies = get_collected_ui_movies()
         movies = [UiMovie.model_validate(m) for m in raw_movies]
         return ChatResponse(response=response, tool_calls=tool_calls, movies=movies)
+    except RateLimitError:
+        return JSONResponse(status_code=429, content=_RATE_LIMIT_BODY)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
     except Exception as exc:

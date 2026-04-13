@@ -191,8 +191,8 @@ def run_agent(message: str, chat_history: list) -> str:
 
     try:
         result = _invoke_agent(tools, _format_chat_history(chat_history, message))
-    except RateLimitError as exc:
-        raise RuntimeError("Groq rate limit exceeded after 3 retries. Please try again later.") from exc
+    except RateLimitError:
+        raise  # Let HTTP layer map to 429
     except Exception as exc:
         raise RuntimeError(_build_runtime_error_message(exc)) from exc
 

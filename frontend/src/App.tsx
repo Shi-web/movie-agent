@@ -19,6 +19,20 @@ const AGENT_URL =
   (import.meta.env.VITE_AGENT_URL as string | undefined) ??
   "http://localhost:8000";
 
+const RATE_LIMIT_CHAT_MESSAGE =
+  "I'm getting too many requests right now — wait about 30 seconds and try again.";
+
+function responseHasRateLimitError(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const rec = data as Record<string, unknown>;
+  if (rec.error === "rate_limit") return true;
+  const detail = rec.detail;
+  if (detail && typeof detail === "object" && (detail as Record<string, unknown>).error === "rate_limit") {
+    return true;
+  }
+  return false;
+}
+
 function apiErrorMessage(err: unknown): string | undefined {
   if (!axios.isAxiosError(err)) return undefined;
   const data = err.response?.data;
@@ -75,9 +89,14 @@ export default function App() {
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       // Show the error inline in the chat thread
-      const errorText =
-        apiErrorMessage(err) ??
-        "I couldn't reach the agent. Please check it's running and try again.";
+      const data = axios.isAxiosError(err) ? err.response?.data : undefined;
+      const rateLimited =
+        (axios.isAxiosError(err) && err.response?.status === 429) ||
+        (data !== undefined && responseHasRateLimitError(data));
+      const errorText = rateLimited
+        ? RATE_LIMIT_CHAT_MESSAGE
+        : (apiErrorMessage(err) ??
+          "I couldn't reach the agent. Please check it's running and try again.");
 
       const errorMsg: Message = {
         id: crypto.randomUUID(),
