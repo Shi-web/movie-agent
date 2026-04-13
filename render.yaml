@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: movie-agent-mcp
+    runtime: node
+    buildCommand: cd mcp-server && npm install
+    startCommand: cd mcp-server && node index.js
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false
+
+  - type: web
+    name: movie-agent-backend
+    runtime: python
+    buildCommand: cd agent && pip install -r requirements.txt
+    startCommand: cd agent && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MCP_SERVER_URL
+        sync: false

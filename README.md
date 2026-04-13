@@ -202,26 +202,57 @@ curl -X POST http://localhost:8000/chat \
 
 ---
 
-## Deployment Notes
+## Deployment
 
-### Demo / Staging — Railway
+The backend services (MCP server + agent) deploy to **Render** via `render.yaml`, and the frontend deploys to **Vercel** via `frontend/vercel.json`.
 
-Each service maps to an individual [Railway](https://railway.app) service within a single project:
+### Backend — Render
 
-1. Create a new Railway project and add three services pointing to `frontend/`, `agent/`, and `mcp-server/`.
-2. Set environment variables in the Railway dashboard for each service.
-3. Railway auto-detects the Dockerfiles and assigns public URLs.
-4. Point the frontend's `VITE_AGENT_URL` build variable to the agent's Railway URL.
+The repo includes a [`render.yaml`](render.yaml) Blueprint that defines both backend services. Connect your GitHub repo in the Render dashboard and it will pick up the Blueprint automatically.
 
-### Production — AWS ECS
+| Service | Name | Runtime | Start Command |
+| ------- | ---- | ------- | ------------- |
+| MCP Server | `movie-agent-mcp` | Node | `cd mcp-server && node index.js` |
+| Agent | `movie-agent-backend` | Python | `cd agent && uvicorn main:app --host 0.0.0.0 --port $PORT` |
 
-For production workloads, deploy the three Docker images to **Amazon ECS** (Fargate):
+**Environment variables** — set these in the Render dashboard for each service:
 
-- Push images to **Amazon ECR**.
-- Define an ECS **task definition** with three containers on the same task network.
-- Place an **Application Load Balancer** in front, routing `/api/*` to the agent and `/` to the frontend.
-- Store secrets (`TMDB_API_KEY`, `GROQ_API_KEY`) in **AWS Secrets Manager** and inject them as environment variables.
-- Enable **auto-scaling** on the agent service to handle LLM latency spikes.
+| Variable | Service | Value |
+| -------- | ------- | ----- |
+| `TMDB_API_KEY` | `movie-agent-mcp` | Your TMDB key |
+| `GROQ_API_KEY` | `movie-agent-backend` | Your Groq key |
+| `MCP_SERVER_URL` | `movie-agent-backend` | Public URL of the MCP service (e.g. `https://movie-agent-mcp.onrender.com`) |
+
+Verify after deploy:
+
+```
+https://movie-agent-mcp.onrender.com/health
+https://movie-agent-backend.onrender.com/health
+```
+
+> **Note:** Render's free tier spins down after inactivity — the first request may take 30-60 s. Use a paid instance or an uptime check to keep services warm for demos.
+
+### Frontend — Vercel
+
+The `frontend/` directory includes a [`vercel.json`](frontend/vercel.json) that configures the Vite build. Import the repo in Vercel and set the **Root Directory** to `frontend`.
+
+**Environment variable** — add in Vercel project settings:
+
+| Variable | Value |
+| -------- | ----- |
+| `VITE_AGENT_URL` | Public URL of the agent on Render (e.g. `https://movie-agent-backend.onrender.com`) |
+
+The rewrite rule in `vercel.json` sends all routes to `index.html` so client-side routing works.
+
+### Deployment summary
+
+```
+┌──────────────┐       ┌──────────────────┐       ┌──────────────┐
+│   Vercel     │ HTTP  │  Render          │ HTTP  │  Render      │
+│   Frontend   ├──────►│  Agent (Python)  ├──────►│  MCP Server  │──► TMDB API
+│   :443       │       │  :$PORT          │       │  :$PORT      │
+└──────────────┘       └──────────────────┘       └──────────────┘
+```
 
 ---
 
