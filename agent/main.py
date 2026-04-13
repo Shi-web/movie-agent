@@ -8,12 +8,19 @@ from pydantic import BaseModel, Field
 
 try:
     from .agent import get_last_tool_calls, run_agent
+    from . import keepalive
 except ImportError:
     from agent import get_last_tool_calls, run_agent
+    import keepalive
 
 load_dotenv()
 
 app = FastAPI(title="Movie Agent API", version="0.1.0")
+
+
+@app.on_event("startup")
+def _start_keepalive() -> None:
+    keepalive.start()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
