@@ -1,0 +1,33 @@
+### Tool manifest (agent startup)
+GET http://localhost:4000/tools
+
+###
+
+### Search movies — Inception (2010)
+POST http://localhost:4000/tools/search_movies
+Content-Type: application/json
+
+{
+  "query": "Inception",
+  "year": 2010
+}
+
+###
+
+### Get movie details — Inception (TMDB id 27205)
+POST http://localhost:4000/tools/get_movie_details
+Content-Type: application/json
+
+{
+  "movie_id": 27205
+}
+
+###
+
+### Get similar movies — Inception (TMDB id 27205)
+POST http://localhost:4000/tools/get_similar
+Content-Type: application/json
+
+{
+  "movie_id": 27205
+}

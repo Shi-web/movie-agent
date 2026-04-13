@@ -3,4 +3,3 @@ node_modules/
 __pycache__/
 .venv/
 DEMO_SCRIPT.md
-test.http
