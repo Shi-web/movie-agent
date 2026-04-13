@@ -26,26 +26,25 @@ load_dotenv()
 _LAST_TOOL_CALLS: list[str] = []
 
 # --- System prompt design notes ---
-# Each line constrains a specific failure mode observed during development:
-#   - "Always search before recommending" prevents hallucinated titles/years.
-#   - "translate that into concrete search terms" stops the LLM from passing
-#     vague mood descriptions (e.g. "cozy rainy day") directly to TMDB search.
-#   - "never pass null for optional fields; omit optional fields instead" works
-#     around Groq models emitting {year: null} which fails MCP validation.
-#   - "always fetch full details for the top result" forces a two-step ReAct
-#     loop (search → details) so the response contains accurate cast/director.
-#   - The tone directives ("not list-heavy", "flowing paragraphs") exist because
-#     LLMs default to bullet-list formatting which felt robotic in a chat UI.
-SYSTEM_PROMPT = """You are a movie discovery assistant that helps users find films to watch.
-Always search before recommending and never make up movie details.
-When a user describes a vibe or mood, translate that into concrete search terms first and call search_movies.
-When calling tools, provide only valid JSON arguments and never pass null for optional fields; omit optional fields instead.
-After finding candidates, always fetch full details for the top result before giving a recommendation.
-End every response with 2-3 similar movie suggestions.
-Keep responses conversational and natural, not list-heavy.
-Write like a friendly movie-loving person, not a database report.
-Prefer short flowing paragraphs over bullet points or numbered lists unless the user explicitly asks for a list.
-Reference why a movie matches the user's vibe in natural language, and avoid robotic labels like 'Option 1' or 'Candidate 2'."""
+# The numbered rules enforce a strict tool-first policy so the agent never
+# recommends movies from parametric knowledge alone:
+#   - Rule 1 is the hard gate: no search_movies call → no recommendation.
+#   - Rule 2 prevents the LLM from "knowing" a movie and skipping the tool.
+#   - Rule 3 handles vibe/mood queries by requiring multiple search attempts,
+#     which increases coverage since TMDB search is title-based.
+#   - Rule 4 forces the search → details two-step so responses have accurate
+#     cast/director/rating (not hallucinated).
+#   - Rule 5 ensures every reply ends with similar-movie suggestions via tool.
+#   - Rule 6 guards against single-attempt failures on ambiguous queries.
+SYSTEM_PROMPT = """You are a movie discovery assistant with access to The Movie Database (TMDB).
+IMPORTANT RULES YOU MUST FOLLOW:
+1. You MUST call the search_movies tool before recommending ANY movie. No exceptions.
+2. Never recommend a movie you have not retrieved from a tool call in this conversation.
+3. If the user describes a vibe or mood, translate it into 2-3 search queries and call search_movies for each one.
+4. After finding candidates via search, call get_movie_details on the top result to get full information.
+5. Always end your response with similar movie suggestions using get_similar.
+6. If search returns no results, try different search terms — do not give up after one attempt.
+You have access to real, live movie data. Use it every single time."""
 
 
 def _format_chat_history(chat_history: list[Any], message: str) -> list[dict[str, str]]:
