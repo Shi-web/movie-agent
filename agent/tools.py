@@ -1,5 +1,5 @@
 import os
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from langchain_core.tools import tool
@@ -101,11 +101,11 @@ def _format_list(items: Any) -> str:
 # tokens and confuse the model's natural-language reasoning step.
 
 @tool
-def search_movies(query: str, year: int = 0) -> str:
-    """Use this when the user asks to find movies by title keywords, and optionally narrow the results by release year before picking a specific movie."""
+def search_movies(query: str, year: Optional[int] = None, genre_id: Optional[int] = None) -> str:
+    """Use this when the user asks to find movies by title keywords, and optionally narrow the results by release year or genre id before picking a specific movie. Only include year if the user specifically mentions a year or decade. Never pass year=0 or genre_id=0 — omit them entirely if not specified by the user."""
     global _REQUEST_TOTAL_SEARCH_CALLS
     # Normalise to catch near-duplicate calls ("Inception" vs "inception").
-    signature = (query.strip().lower(), year)
+    signature = (query.strip().lower(), year or 0)
     _REQUEST_SEARCH_CALL_COUNTS[signature] = _REQUEST_SEARCH_CALL_COUNTS.get(signature, 0) + 1
     if signature in _REQUEST_SEARCH_CACHE:
         return _REQUEST_SEARCH_CACHE[signature]
@@ -119,8 +119,10 @@ def search_movies(query: str, year: int = 0) -> str:
         )
 
     payload: dict[str, Any] = {"query": query}
-    if year > 0:
+    if year is not None and year > 0:
         payload["year"] = year
+    if genre_id is not None and genre_id > 0:
+        payload["genre_id"] = genre_id
 
     _REQUEST_TOTAL_SEARCH_CALLS += 1
     data = _post_to_mcp("/tools/search_movies", payload)
