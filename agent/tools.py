@@ -189,6 +189,29 @@ def _format_list(items: Any) -> str:
     return str(items) if items else "N/A"
 
 
+def _trim_overview(text: Any, max_len: int = 150) -> str:
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    s = text.strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3].rstrip() + "..."
+
+
+def _top_cast_line(cast: Any, n: int = 3) -> str:
+    if not isinstance(cast, list) or not cast:
+        return "N/A"
+    names: list[str] = []
+    for item in cast[:n]:
+        if isinstance(item, dict) and item.get("name"):
+            names.append(str(item["name"]))
+        elif isinstance(item, str) and item.strip():
+            names.append(item.strip())
+        else:
+            names.append(str(item))
+    return ", ".join(names) if names else "N/A"
+
+
 # --- Tool docstring design ---
 # The @tool decorator turns each function into a LangChain Tool whose
 # .description is set from the docstring. The LLM reads these descriptions
@@ -235,14 +258,15 @@ def search_movies(query: str) -> str:
         _REQUEST_SEARCH_CACHE[signature] = message
         return message
 
-    for movie in results[:8]:
+    top = results[:3]
+    for movie in top:
         if isinstance(movie, dict):
             _record_ui_movie(movie)
 
     # Format includes the TMDB id so the LLM can pass it to get_movie_details
     # in the next ReAct iteration without the user having to provide it.
-    lines = ["Search results:"]
-    for idx, movie in enumerate(results, start=1):
+    lines = ["Search results (top 3):"]
+    for idx, movie in enumerate(top, start=1):
         movie_id = movie.get("id", "N/A")
         title = movie.get("title", "Unknown title")
         release_year = movie.get("year", "N/A")
@@ -267,16 +291,19 @@ def get_movie_details(movie_id: int) -> str:
 
     title = movie.get("title", "Unknown title")
     director = movie.get("director", "N/A")
-    cast = _format_list(movie.get("cast"))
+    cast = _top_cast_line(movie.get("cast"), n=3)
     genres = _format_list(movie.get("genres"))
     rating = movie.get("rating", "N/A")
+    overview = _trim_overview(movie.get("overview"), max_len=150)
+    overview_line = f"Overview: {overview}" if overview else "Overview: N/A"
 
     return (
         f"Title: {title}\n"
         f"Director: {director}\n"
-        f"Cast: {cast}\n"
+        f"Cast (top 3): {cast}\n"
         f"Genres: {genres}\n"
-        f"Rating: {rating}"
+        f"Rating: {rating}\n"
+        f"{overview_line}"
     )
 
 
@@ -291,12 +318,13 @@ def get_similar_movies(movie_id: int) -> str:
     if not results:
         return f"No similar movies found for movie id {movie_id}."
 
-    for movie in results[:6]:
+    top = results[:3]
+    for movie in top:
         if isinstance(movie, dict):
             _record_ui_movie(movie)
 
-    lines = ["Similar movies:"]
-    for idx, movie in enumerate(results, start=1):
+    lines = ["Similar movies (top 3):"]
+    for idx, movie in enumerate(top, start=1):
         title = movie.get("title", "Unknown title")
         release_year = movie.get("year", "N/A")
         similar_id = movie.get("id", "N/A")

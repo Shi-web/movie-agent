@@ -27,49 +27,12 @@ load_dotenv()
 # tool calls after the loop finishes by walking the returned message list.
 _LAST_TOOL_CALLS: list[str] = []
 
-# --- System prompt design notes ---
-# The prompt has two sections: TOOL RULES and OUTPUT FORMATTING.
-#
-# Tool rules enforce a strict tool-first policy so the agent never
-# recommends movies from parametric knowledge alone:
-#   - Rule 1 is the hard gate: no search_movies call → no recommendation.
-#   - Rule 2 prevents the LLM from "knowing" a movie and skipping the tool.
-#   - Rule 3 handles vibe/mood queries by requiring multiple search attempts,
-#     which increases coverage since TMDB search is title-based.
-#   - Rule 4 forces the search → details two-step so responses have accurate
-#     cast/director/rating (not hallucinated).
-#   - Rule 5 ensures every reply ends with similar-movie suggestions via tool.
-#   - Rule 6 guards against single-attempt failures on ambiguous queries.
-#
-# Output formatting constraints:
-#   - "NEVER show movie IDs" prevents internal TMDB ids from leaking into chat.
-#   - "Do not use bold labels" and "weave naturally" stop the LLM from falling
-#     back to its default structured-report style (Director: X, Cast: Y, ...).
-#   - The 150-word cap keeps responses concise for a chat UI.
-#   - The example at the end is a one-shot demonstration — LLMs mimic the tone
-#     and structure of concrete examples far more reliably than abstract rules.
-SYSTEM_PROMPT = """You are a movie discovery assistant with access to The Movie Database (TMDB).
+# Kept short to save prompt tokens; tools carry factual data.
+SYSTEM_PROMPT = """You are a movie discovery assistant using live TMDB data via tools.
 
-IMPORTANT RULES YOU MUST FOLLOW:
-1. You MUST call the search_movies tool before recommending ANY movie. No exceptions.
-2. Never recommend a movie you have not retrieved from a tool call in this conversation.
-3. If the user describes a vibe or mood, translate it into 2-3 search queries and call search_movies for each one.
-4. After finding candidates via search, call get_movie_details on the top result to get full information.
-5. Always end your response with similar movie suggestions using get_similar.
-6. If search returns no results, try different search terms — do not give up after one attempt.
-You have access to real, live movie data. Use it every single time.
+Rules: Always use search_movies before recommending anything, then get_movie_details on your chosen title, then get_similar_movies for related picks. Only recommend movies you actually retrieved this turn—no guesses from memory. For vague or mood-based asks, try a couple of different search queries if the first is empty.
 
-When writing your final response:
-- Write in a warm, conversational tone like a knowledgeable friend recommending a movie — not like a database report.
-- NEVER show movie IDs to the user, they are internal only.
-- Do not use bold labels like *Director:* or *Cast:* — weave that information naturally into the recommendation.
-- For the main recommendation, write 3-4 sentences explaining why it fits what the user asked for, mentioning the director and a couple of cast members naturally in the text.
-- For similar movies, just list 3 titles with one sentence each — no IDs, no labels.
-- Keep the whole response under 150 words.
-- Never use bullet points or numbered lists for the main recommendation.
-
-Example of good tone:
-'You'd probably love The Martian — Ridley Scott directs Matt Damon as an astronaut stranded on Mars, and it somehow manages to be genuinely funny despite the life-or-death stakes. It has that same epic space scale as Interstellar but way more laughs.'"""
+Style: Warm and conversational, under about 120 words. Never show TMDB ids to the user. Weave director and a few cast names into sentences—no bold labels, no bullet list for the main recommendation. End with brief similar-movie suggestions."""
 
 
 def _format_chat_history(chat_history: list[Any], message: str) -> list[dict[str, str]]:
@@ -164,6 +127,7 @@ def _invoke_agent(tools, chat_history_messages):
             llm = ChatGroq(
                 model="llama-3.3-70b-versatile",  # Groq free-tier model
                 temperature=0,
+                max_tokens=500,
                 http_client=sync_client,
             )
             # create_agent wires up a ReAct (Reasoning + Acting) loop:
@@ -176,7 +140,12 @@ def _invoke_agent(tools, chat_history_messages):
             # invoke; their docstrings become the tool descriptions the
             # LLM reads to decide which tool fits the user's request.
             agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
-            return agent.invoke({"messages": chat_history_messages})
+            # LangGraph step cap (this codebase uses create_agent, not AgentExecutor;
+            # ~12 steps ≈ capping tool loop depth similar to max_iterations=3).
+            return agent.invoke(
+                {"messages": chat_history_messages},
+                config={"recursion_limit": 12},
+            )
 
 
 def run_agent(message: str, chat_history: list) -> str:
