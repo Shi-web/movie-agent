@@ -13,6 +13,11 @@ _REQUEST_SEARCH_CACHE: dict[tuple[str, int], str] = {}
 _REQUEST_SEARCH_CALL_COUNTS: dict[tuple[str, int], int] = {}
 _REQUEST_TOTAL_SEARCH_CALLS = 0
 
+# Movies touched by tools during the current user turn, for rich UI cards.
+_UI_MOVIE_ORDER: list[int] = []
+_UI_MOVIES_BY_ID: dict[int, dict[str, Any]] = {}
+_UI_MOVIE_CAP = 12
+
 
 def reset_tool_runtime_state() -> None:
     """Called once per user message (before the ReAct loop starts) to reset
@@ -21,6 +26,100 @@ def reset_tool_runtime_state() -> None:
     _REQUEST_SEARCH_CACHE.clear()
     _REQUEST_SEARCH_CALL_COUNTS.clear()
     _REQUEST_TOTAL_SEARCH_CALLS = 0
+    _UI_MOVIE_ORDER.clear()
+    _UI_MOVIES_BY_ID.clear()
+
+
+def get_collected_ui_movies() -> list[dict[str, Any]]:
+    """Structured movie payloads gathered from TMDB tool responses this turn."""
+    return [_UI_MOVIES_BY_ID[mid] for mid in _UI_MOVIE_ORDER if mid in _UI_MOVIES_BY_ID][
+        :_UI_MOVIE_CAP
+    ]
+
+
+def _normalize_movie_for_ui(movie: dict[str, Any]) -> dict[str, Any] | None:
+    mid = movie.get("id")
+    if mid is None:
+        return None
+    try:
+        mid = int(mid)
+    except (TypeError, ValueError):
+        return None
+
+    title = str(movie.get("title") or "Untitled")
+    year: str | int | None = movie.get("year")
+    rd = movie.get("release_date")
+    if year is None and isinstance(rd, str) and len(rd) >= 4:
+        year = rd[:4]
+
+    raw_rating = movie.get("vote_average")
+    if raw_rating is None:
+        raw_rating = movie.get("rating")
+    rating: float | None
+    try:
+        rating = float(raw_rating) if raw_rating is not None else None
+    except (TypeError, ValueError):
+        rating = None
+
+    poster_path = movie.get("poster_path")
+    if isinstance(poster_path, str) and poster_path and not poster_path.startswith("/"):
+        poster_path = f"/{poster_path}"
+    elif not isinstance(poster_path, str):
+        poster_path = None
+
+    overview = movie.get("overview")
+    if isinstance(overview, str):
+        overview = overview.strip() or None
+    else:
+        overview = None
+
+    genres: list[str] = []
+    g = movie.get("genres")
+    if isinstance(g, list):
+        for item in g:
+            if isinstance(item, dict) and item.get("name"):
+                genres.append(str(item["name"]))
+            elif isinstance(item, str) and item.strip():
+                genres.append(item.strip())
+
+    return {
+        "id": mid,
+        "title": title,
+        "year": year,
+        "rating": rating,
+        "poster_path": poster_path,
+        "overview": overview,
+        "genres": genres,
+    }
+
+
+def _merge_ui_movie_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
+    for key in ("title", "year", "rating", "poster_path"):
+        if existing.get(key) in (None, "") and incoming.get(key) not in (None, ""):
+            existing[key] = incoming[key]
+    o_in = incoming.get("overview") or ""
+    o_ex = existing.get("overview") or ""
+    if len(str(o_in)) > len(str(o_ex)):
+        existing["overview"] = incoming.get("overview")
+    if incoming.get("rating") is not None:
+        existing["rating"] = incoming["rating"]
+    g_ex = list(existing.get("genres") or [])
+    for name in incoming.get("genres") or []:
+        if name not in g_ex:
+            g_ex.append(name)
+    existing["genres"] = g_ex
+
+
+def _record_ui_movie(raw: dict[str, Any]) -> None:
+    normalized = _normalize_movie_for_ui(raw)
+    if not normalized:
+        return
+    mid = normalized["id"]
+    if mid not in _UI_MOVIES_BY_ID:
+        _UI_MOVIES_BY_ID[mid] = normalized
+        _UI_MOVIE_ORDER.append(mid)
+    else:
+        _merge_ui_movie_entry(_UI_MOVIES_BY_ID[mid], normalized)
 
 
 def _mcp_server_url() -> str:
@@ -136,6 +235,10 @@ def search_movies(query: str) -> str:
         _REQUEST_SEARCH_CACHE[signature] = message
         return message
 
+    for movie in results[:8]:
+        if isinstance(movie, dict):
+            _record_ui_movie(movie)
+
     # Format includes the TMDB id so the LLM can pass it to get_movie_details
     # in the next ReAct iteration without the user having to provide it.
     lines = ["Search results:"]
@@ -159,6 +262,8 @@ def get_movie_details(movie_id: int) -> str:
     movie = _extract_object(data)
     if not movie:
         return f"No details found for movie id {movie_id}."
+
+    _record_ui_movie(movie)
 
     title = movie.get("title", "Unknown title")
     director = movie.get("director", "N/A")
@@ -185,6 +290,10 @@ def get_similar_movies(movie_id: int) -> str:
     results = _extract_results(data)
     if not results:
         return f"No similar movies found for movie id {movie_id}."
+
+    for movie in results[:6]:
+        if isinstance(movie, dict):
+            _record_ui_movie(movie)
 
     lines = ["Similar movies:"]
     for idx, movie in enumerate(results, start=1):

@@ -19,6 +19,20 @@ const AGENT_URL =
   (import.meta.env.VITE_AGENT_URL as string | undefined) ??
   "http://localhost:8000";
 
+function apiErrorMessage(err: unknown): string | undefined {
+  if (!axios.isAxiosError(err)) return undefined;
+  const data = err.response?.data;
+  if (!data || typeof data !== "object") return undefined;
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.error === "string") return rec.error;
+  const detail = rec.detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && typeof (detail as { error?: unknown }).error === "string") {
+    return (detail as { error: string }).error;
+  }
+  return undefined;
+}
+
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,6 +61,7 @@ export default function App() {
       const { data } = await axios.post<{
         response: string;
         tool_calls: { name: string }[];
+        movies?: MovieData[];
       }>(`${AGENT_URL}/chat`, { message: trimmed, history });
 
       // 4. Add assistant response
@@ -55,14 +70,14 @@ export default function App() {
         role: "assistant",
         content: data.response,
         toolCalls: data.tool_calls?.map((t) => t.name) ?? [],
+        movies: data.movies?.length ? data.movies : undefined,
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       // Show the error inline in the chat thread
       const errorText =
-        axios.isAxiosError(err) && err.response?.data?.error
-          ? (err.response.data.error as string)
-          : "I couldn't reach the agent. Please check it's running and try again.";
+        apiErrorMessage(err) ??
+        "I couldn't reach the agent. Please check it's running and try again.";
 
       const errorMsg: Message = {
         id: crypto.randomUUID(),
@@ -83,9 +98,23 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950 text-gray-100">
-      <Sidebar onNewChat={handleNewChat} chatCount={messages.length} />
-      <Chat messages={messages} isLoading={isLoading} onSend={sendMessage} />
+    <div className="relative flex h-screen overflow-hidden text-gray-100">
+      <div
+        className="cinema-bg-fixed cinema-gradient-animated"
+        aria-hidden
+      />
+      <div className="cinema-bg-fixed cinema-bokeh" aria-hidden />
+      <div className="cinema-bg-fixed cinema-bokeh-slow" aria-hidden />
+      <div className="cinema-bg-fixed cinema-grain-animated" aria-hidden />
+      <div className="relative z-10 flex flex-1 min-w-0 min-h-0">
+        <Sidebar
+          onNewChat={handleNewChat}
+          chatCount={messages.length}
+          isLoading={isLoading}
+          onGenrePrompt={sendMessage}
+        />
+        <Chat messages={messages} isLoading={isLoading} onSend={sendMessage} />
+      </div>
     </div>
   );
 }

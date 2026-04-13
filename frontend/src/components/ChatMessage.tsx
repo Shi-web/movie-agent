@@ -10,22 +10,27 @@ export type { MovieData };
 //   - plain strings → <span>
 //   - bold tokens   → styled pill badge
 // ---------------------------------------------------------------------------
-function parseBoldToPills(text: string): React.ReactNode[] {
+function parseBoldToPills(
+  text: string,
+  pillClassName: string,
+): React.ReactNode[] {
   const parts = text.split(/\*\*([^*]+)\*\*/g);
   return parts.map((part, i) => {
-    // Odd indices are the captured groups (the bold text)
     if (i % 2 === 1) {
       return (
         <span
           key={i}
-          className="inline-flex items-center mx-0.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200 whitespace-nowrap"
+          className={`inline-flex items-center mx-0.5 px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${pillClassName}`}
         >
           {part}
         </span>
       );
     }
-    // Even indices are plain text — preserve newlines
-    return <span key={i} className="whitespace-pre-wrap">{part}</span>;
+    return (
+      <span key={i} className="whitespace-pre-wrap">
+        {part}
+      </span>
+    );
   });
 }
 
@@ -35,8 +40,13 @@ function parseBoldToPills(text: string): React.ReactNode[] {
 
 function UserBubble({ content }: { content: string }) {
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[75%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-sm">
+    <div className="flex justify-end chat-message-enter">
+      <div
+        className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-white
+          bg-gradient-to-br from-purple-600 via-violet-600 to-purple-800
+          shadow-[0_4px_24px_rgba(147,51,234,0.42),0_0_48px_rgba(109,40,217,0.18),inset_0_1px_0_rgba(255,255,255,0.12)]
+          ring-1 ring-purple-400/35"
+      >
         {content}
       </div>
     </div>
@@ -50,24 +60,27 @@ function AssistantBubble({
   content: string;
   movies?: MovieData[];
 }) {
-  const nodes = parseBoldToPills(content);
+  const pillClass =
+    "bg-purple-500/20 text-purple-100 border border-purple-400/35";
+  const nodes = parseBoldToPills(content, pillClass);
 
   return (
-    <div className="flex gap-3 max-w-3xl">
-      {/* Avatar */}
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold mt-0.5 shadow-sm">
+    <div className="flex gap-3 max-w-3xl chat-message-enter">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-sm font-bold mt-0.5 shadow-[0_0_16px_rgba(147,51,234,0.4)] ring-1 ring-purple-400/40">
         M
       </div>
 
-      <div className="flex-1 space-y-3">
-        {/* White card bubble */}
-        <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-gray-900 text-sm leading-relaxed shadow-sm">
+      <div className="flex-1 min-w-0 space-y-4">
+        <div
+          className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed
+            border border-white/[0.12] bg-white/[0.06] backdrop-blur-xl text-gray-100
+            shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+        >
           {nodes}
         </div>
 
-        {/* Movie cards row */}
         {movies && movies.length > 0 && (
-          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+          <div className="flex flex-wrap gap-4">
             {movies.map((movie, i) => (
               <MovieCard key={movie.id ?? i} {...movie} />
             ))}
@@ -80,8 +93,7 @@ function AssistantBubble({
 
 function ErrorBubble({ content }: { content: string }) {
   return (
-    <div className="flex gap-3 max-w-3xl">
-      {/* Error avatar */}
+    <div className="flex gap-3 max-w-3xl chat-message-enter">
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/80 flex items-center justify-center text-white mt-0.5 shadow-sm">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -97,9 +109,8 @@ function ErrorBubble({ content }: { content: string }) {
         </svg>
       </div>
 
-      {/* Red-tinted card */}
       <div className="flex-1">
-        <div className="bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 text-red-800 text-sm leading-relaxed shadow-sm">
+        <div className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed border border-red-400/25 bg-red-500/10 backdrop-blur-md text-red-100">
           {content}
         </div>
       </div>

@@ -9,9 +9,11 @@ from pydantic import BaseModel, Field
 try:
     from .agent import get_last_tool_calls, run_agent
     from . import keepalive
+    from .tools import get_collected_ui_movies
 except ImportError:
     from agent import get_last_tool_calls, run_agent
     import keepalive
+    from tools import get_collected_ui_movies
 
 load_dotenv()
 
@@ -55,6 +57,7 @@ def chat(payload: ChatRequest):
         return {
             "response": response,
             "tool_calls": get_last_tool_calls(),
+            "movies": get_collected_ui_movies(),
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
