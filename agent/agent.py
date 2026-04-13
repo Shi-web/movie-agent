@@ -4,9 +4,11 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+from groq import RateLimitError
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_groq import ChatGroq
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 try:
     from .tools import (
@@ -145,6 +147,38 @@ def _without_proxy_env():
                 os.environ[key] = value
 
 
+@retry(
+    retry=lambda retry_state: isinstance(retry_state.outcome.exception(), RateLimitError),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def _invoke_agent(tools, chat_history_messages):
+    """Isolated invocation so tenacity can retry on Groq rate limits without
+    re-running the caller's setup/teardown (cache reset, tool-call extraction)."""
+    with _without_proxy_env():
+        # trust_env=False prevents httpx from picking up leftover proxy
+        # vars that _without_proxy_env might not fully clear (e.g. in
+        # subprocesses that re-read /etc/environment).
+        with httpx.Client(trust_env=False, timeout=30.0) as sync_client:
+            llm = ChatGroq(
+                model="llama-3.3-70b-versatile",  # Groq free-tier model
+                temperature=0,
+                http_client=sync_client,
+            )
+            # create_agent wires up a ReAct (Reasoning + Acting) loop:
+            #   1. LLM reads the conversation + system prompt
+            #   2. LLM decides to call a tool OR respond directly
+            #   3. If a tool was called, its output is appended and the
+            #      LLM is invoked again (back to step 1)
+            #   4. Loop ends when the LLM produces a final text response
+            # The tools list tells LangChain which functions the LLM may
+            # invoke; their docstrings become the tool descriptions the
+            # LLM reads to decide which tool fits the user's request.
+            agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
+            return agent.invoke({"messages": chat_history_messages})
+
+
 def run_agent(message: str, chat_history: list) -> str:
     global _LAST_TOOL_CALLS
     _LAST_TOOL_CALLS = []
@@ -155,39 +189,12 @@ def run_agent(message: str, chat_history: list) -> str:
     if not os.environ.get("GROQ_API_KEY"):
         raise RuntimeError("Missing GROQ_API_KEY. Please set it in your environment.")
 
-    last_exc: Exception | None = None
-    # Fallback chain: try the primary model first; if Groq returns a transient
-    # error (rate limit, model unavailable), fall through to the next candidate.
-    # The for/else pattern means the else block runs only if no model succeeded.
-    model_candidates = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]
-    for model_name in model_candidates:
-        try:
-            with _without_proxy_env():
-                # trust_env=False prevents httpx from picking up leftover proxy
-                # vars that _without_proxy_env might not fully clear (e.g. in
-                # subprocesses that re-read /etc/environment).
-                with httpx.Client(trust_env=False, timeout=30.0) as sync_client:
-                    llm = ChatGroq(
-                        model=model_name,
-                        temperature=0,
-                        http_client=sync_client,
-                    )
-                    # create_agent wires up a ReAct (Reasoning + Acting) loop:
-                    #   1. LLM reads the conversation + system prompt
-                    #   2. LLM decides to call a tool OR respond directly
-                    #   3. If a tool was called, its output is appended and the
-                    #      LLM is invoked again (back to step 1)
-                    #   4. Loop ends when the LLM produces a final text response
-                    # The tools list tells LangChain which functions the LLM may
-                    # invoke; their docstrings become the tool descriptions the
-                    # LLM reads to decide which tool fits the user's request.
-                    agent = create_agent(model=llm, tools=tools, system_prompt=SYSTEM_PROMPT)
-                    result = agent.invoke({"messages": _format_chat_history(chat_history, message)})
-                    break
-        except Exception as exc:
-            last_exc = exc
-    else:
-        raise RuntimeError(_build_runtime_error_message(last_exc or RuntimeError("Unknown agent failure."))) from last_exc
+    try:
+        result = _invoke_agent(tools, _format_chat_history(chat_history, message))
+    except RateLimitError as exc:
+        raise RuntimeError("Groq rate limit exceeded after 3 retries. Please try again later.") from exc
+    except Exception as exc:
+        raise RuntimeError(_build_runtime_error_message(exc)) from exc
 
     # The ReAct loop returns the full message history (system prompt, user
     # message, tool calls, tool results, and final assistant reply). We walk
