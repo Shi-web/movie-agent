@@ -1,0 +1,40 @@
+services:
+  mcp-server:
+    build:
+      context: ./mcp-server
+    env_file: .env
+    ports:
+      - "4000:4000"
+    networks:
+      - movie-agent-network
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: ./agent
+    env_file: .env
+    ports:
+      - "8000:8000"
+    networks:
+      - movie-agent-network
+    depends_on:
+      - mcp-server
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_AGENT_URL: /api
+    env_file: .env
+    ports:
+      - "3000:80"
+    networks:
+      - movie-agent-network
+    depends_on:
+      - agent
+    restart: unless-stopped
+
+networks:
+  movie-agent-network:
+    driver: bridge
