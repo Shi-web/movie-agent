@@ -43,22 +43,13 @@ const toolsManifest = {
     {
       name: "search_movies",
       description:
-        "Search The Movie Database for movies by title. Optionally narrow by release year and/or filter results to a TMDB genre id.",
+        "Search The Movie Database for movies by a descriptive query string.",
       input_schema: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Title search query.",
-          },
-          year: {
-            type: "integer",
-            description: "Optional release year (passed to TMDB search).",
-          },
-          genre_id: {
-            type: "integer",
-            description:
-              "Optional TMDB genre id; only movies that include this genre are returned.",
+            description: "Descriptive search query (e.g. 'funny space movies', 'christopher nolan thriller').",
           },
         },
         required: ["query"],
@@ -166,32 +157,15 @@ app.post("/tools/search_movies", async (req, res) => {
   try {
     if (!requireTmdbKey(res)) return;
 
-    const { query, year, genre_id } = req.body ?? {};
+    const { query } = req.body ?? {};
 
     if (typeof query !== "string" || !query.trim()) {
       return res.status(400).json({
         error: "body.query is required and must be a non-empty string",
       });
     }
-    if (year !== undefined && year !== null) {
-      if (typeof year !== "number" || !Number.isInteger(year)) {
-        return res.status(400).json({
-          error: "body.year must be an integer when provided",
-        });
-      }
-    }
-    if (genre_id !== undefined && genre_id !== null) {
-      if (typeof genre_id !== "number" || !Number.isInteger(genre_id)) {
-        return res.status(400).json({
-          error: "body.genre_id must be an integer when provided",
-        });
-      }
-    }
 
-    const params = { query: query.trim() };
-    if (year !== undefined && year !== null) params.year = year;
-
-    const response = await tmdbGet("/search/movie", params);
+    const response = await tmdbGet("/search/movie", { query: query.trim() });
     if (response.status >= 400) {
       const message =
         response.data?.status_message ||
@@ -202,17 +176,7 @@ app.post("/tools/search_movies", async (req, res) => {
       });
     }
 
-    let results = (response.data?.results ?? []).map(mapMovieResult);
-    // TMDB's /search/movie endpoint doesn't support genre filtering natively,
-    // so we apply it client-side. This is fine for our use case (small result
-    // sets of ~20 items) but wouldn't scale for a full discovery API.
-    if (genre_id !== undefined && genre_id !== null) {
-      const raw = response.data?.results ?? [];
-      results = raw
-        .filter((m) => Array.isArray(m.genre_ids) && m.genre_ids.includes(genre_id))
-        .map(mapMovieResult);
-    }
-
+    const results = (response.data?.results ?? []).map(mapMovieResult);
     return res.json(results);
   } catch (err) {
     const { status, message } = mapTmdbAxiosError(err);
